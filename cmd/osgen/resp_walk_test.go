@@ -760,10 +760,9 @@ func TestRawMessageOmitEmptyPreservesExplicitNull(t *testing.T) {
 }
 
 // A nullable scalar is a pointer so nil can stand for null, but whether it
-// carries omitempty follows `required` alone. Treating nullable as "always
-// present" made optional nullable request fields such as DateRangeQuery.from
-// and .to marshal as explicit nulls whenever the caller left them unset
-// (opensearch-go#1114).
+// carries omitempty follows `required` alone: an optional nullable field is
+// omitted when unset, and only a required one keeps the bare tag so nil
+// marshals as the explicit null the schema demands. Guards #1114.
 func TestWalkerNullableScalarOmitEmpty(t *testing.T) {
 	t.Parallel()
 

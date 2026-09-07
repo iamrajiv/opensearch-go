@@ -323,10 +323,8 @@ func TestScriptBodiesMarshalDocumentedShapes(t *testing.T) {
 
 // An optional nullable request field is a pointer so a caller can leave it
 // unset, and unset must mean absent on the wire. The spec types range bounds
-// `from`/`to` as oneOf [value, null]; the generator used to read that null
-// branch as "always present" and drop omitempty, so every range query carried
-// "from":null,"to":null whether or not the caller set them
-// (opensearch-go#1114).
+// `from`/`to` as oneOf [value, null], so a nil bound is omitted rather than
+// sent as `"from":null,"to":null`. Guards #1114.
 func TestRangeQueryOmitsUnsetBounds(t *testing.T) {
 	t.Parallel()
 
