@@ -42,6 +42,7 @@ type pitRequest struct {
 type fakePITConfig struct {
 	createStatus int  // 0 means 200
 	createNoID   bool // create succeeds but its response has no pit_id
+	createFailed int  // failed shards reported on create, with the pit_id
 	failedShards int  // failed shards reported on every search
 
 	// searchErrStatus, if set, answers every search with this status and an
@@ -122,6 +123,11 @@ func (f *fakePITCluster) handler(w http.ResponseWriter, r *http.Request) {
 		}
 		if f.createNoID {
 			fmt.Fprint(w, `{"_shards":{"total":1,"successful":1,"failed":0},"creation_time":1}`)
+			return
+		}
+		if f.createFailed > 0 {
+			fmt.Fprintf(w, `{"pit_id":"pit-1","_shards":{"total":%d,"successful":1,"failed":%d},"creation_time":1}`,
+				1+f.createFailed, f.createFailed)
 			return
 		}
 		fmt.Fprint(w, `{"pit_id":"pit-1","_shards":{"total":1,"successful":1,"failed":0},"creation_time":1}`)
@@ -251,8 +257,10 @@ func TestPITOpen(t *testing.T) {
 		params        *opensearchapi.CreatePITParams
 		createStatus  int
 		createNoID    bool
+		createFailed  int
 		wantKeepAlive string // keep_alive query value sent on create
 		wantErr       bool
+		wantDeletes   int
 	}{
 		{name: "no params uses the 300s default", params: nil, wantKeepAlive: "keep_alive=300000ms"},
 		{name: "zero keep_alive uses the 300s default", params: &opensearchapi.CreatePITParams{}, wantKeepAlive: "keep_alive=300000ms"},
@@ -268,15 +276,22 @@ func TestPITOpen(t *testing.T) {
 			name: "a create response without a PIT ID is an error", createNoID: true,
 			wantKeepAlive: "keep_alive=300000ms", wantErr: true,
 		},
+		{
+			name: "a create that failed on a shard is an error, and its PIT is deleted", createFailed: 1,
+			wantKeepAlive: "keep_alive=300000ms", wantErr: true, wantDeletes: 1,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			f := &fakePITCluster{fakePITConfig: fakePITConfig{createStatus: tt.createStatus, createNoID: tt.createNoID}}
+			f := &fakePITCluster{fakePITConfig: fakePITConfig{
+				createStatus: tt.createStatus, createNoID: tt.createNoID, createFailed: tt.createFailed,
+			}}
 			client := newPITClient(t, f)
 
 			pit, err := client.PIT.Open(t.Context(), &opensearchapi.CreatePITReq{Indices: []string{"idx"}, Params: tt.params})
 
+			require.Len(t, f.deletes(), tt.wantDeletes)
 			creates := f.creates()
 			require.Len(t, creates, 1)
 			require.Equal(t, "/idx/_search/point_in_time", creates[0].path)

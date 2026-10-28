@@ -62,6 +62,8 @@ type PIT struct {
 // Open creates a point-in-time over req.Indices and returns a handle to it.
 // If req.Params is nil or its KeepAlive is zero, Open uses a keep_alive of 300 seconds.
 // Unlike [IndicesClient.Open], which opens a closed index, Open creates a PIT.
+// If the create fails on some shards, Open deletes the PIT the others made and
+// returns the error.
 func (c PointInTimeClient) Open(ctx context.Context, req *CreatePITReq) (*PIT, error) {
 	var create CreatePITReq
 	if req != nil {
@@ -78,6 +80,13 @@ func (c PointInTimeClient) Open(ctx context.Context, req *CreatePITReq) (*PIT, e
 
 	resp, err := c.Create(ctx, &create)
 	if err != nil {
+		// A create that failed on some shards still made a PIT on the others, and
+		// only its ID, which the caller never sees, can delete it.
+		if resp != nil && resp.PITID.IsSet() {
+			closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), oneShotCloseTimeout)
+			defer cancel()
+			err = errors.Join(err, (&PIT{client: c.apiClient, id: resp.PITID}).Close(closeCtx))
+		}
 		return nil, err
 	}
 	if !resp.PITID.IsSet() {
