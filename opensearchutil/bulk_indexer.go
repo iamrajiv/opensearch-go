@@ -818,6 +818,9 @@ type bulkClient struct {
 	cancel    context.CancelFunc
 	stats     *bulkIndexerStats
 
+	// stopOnContext unhooks the construction context's AfterFunc.
+	stopOnContext func() bool
+
 	metaPool         sync.Pool
 	metaPoolMaxBytes int
 
@@ -1660,8 +1663,10 @@ func (bi *bulkClient) Close(ctx context.Context) error {
 			}
 		}()
 	}
-	// Release the cancellation context once Close is done with it.
+	// Release the cancellation context once Close is done with it, and the
+	// construction context, which would otherwise keep the bulk client alive.
 	defer bi.cancel()
+	defer bi.stopOnContext()
 
 	// A context that ends while Close waits cancels the bulk client, so the wait
 	// below is bounded. A context that has already ended does so at once and
@@ -1811,7 +1816,7 @@ func (bi *bulkClient) init(ctx context.Context) {
 	bi.workerPool.New = func() any { return &worker{bi: bi} }
 
 	// Nothing is sent once the construction context has ended.
-	context.AfterFunc(ctx, bi.sched.stop)
+	bi.stopOnContext = context.AfterFunc(ctx, bi.sched.stop)
 
 	// Cancel sends what is buffered at once, so that it fails now and not at the
 	// next flush.

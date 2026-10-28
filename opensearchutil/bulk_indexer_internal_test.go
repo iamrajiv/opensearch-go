@@ -39,6 +39,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -46,6 +47,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"weak"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
@@ -1751,6 +1753,29 @@ func TestBulkIndexerFlushDoesNotHangWhenConstructionContextCancelled(t *testing.
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Flush hung after construction context was cancelled")
+	}
+}
+
+// Close lets go of the construction context, so a closed bulk indexer can be
+// collected while that context lives on.
+func TestBulkIndexerCloseReleasesConstructionContext(t *testing.T) {
+	t.Parallel()
+
+	bi, err := NewBulkIndexer(BulkIndexerConfig{
+		Context: t.Context(),
+		Client:  newBulkTestClient(t, func(*http.Request) (*http.Response, error) { return infoResponse() }),
+		Index:   testutil.MustUniqueString(t, "test-index"),
+	})
+	require.NoError(t, err)
+	require.NoError(t, bi.Close(t.Context()))
+
+	closed := weak.Make(bi.(*bulkClient))
+	// One collection is not always enough to free it.
+	for range 5 {
+		runtime.GC()
+	}
+	if closed.Value() != nil {
+		t.Fatal("a closed bulk indexer is still reachable from its construction context")
 	}
 }
 
