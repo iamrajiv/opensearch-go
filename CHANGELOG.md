@@ -15,6 +15,7 @@ Inspired from [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 ### Fixed
 
 - Keep nodes available when a transport attempt returns an error while the caller's context is canceled or its deadline has expired, including seed fallback. These failures no longer demote the node, invalidate shard placement, or trigger a retry. ([#1254](https://github.com/opensearch-project/opensearch-go/pull/1254))
+- Fix `PointInTimeClient.Open` leaking a PIT that the create made on only some shards. The server makes a PIT on the shards it can reach and answers with its `pit_id` and the shards that failed, which the client reports as an error; `Open` returned that error and dropped the ID, so the PIT stayed open until its keep_alive ran out and counted against `search.max_open_pit_context`, and every retried `Open` left another. `Open` now deletes it before returning the error. ([#1258](https://github.com/opensearch-project/opensearch-go/pull/1258))
 
 ### Security
 
