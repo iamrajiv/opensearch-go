@@ -15,6 +15,7 @@ Inspired from [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 ### Fixed
 
 - Keep nodes available when a transport attempt returns an error while the caller's context is canceled or its deadline has expired, including seed fallback. These failures no longer demote the node, invalidate shard placement, or trigger a retry. ([#1254](https://github.com/opensearch-project/opensearch-go/pull/1254))
+- Fix a closed `BulkIndexer` staying reachable from the context it was built with. `NewBulkIndexer` registered a `context.AfterFunc` on `BulkIndexerConfig.Context` and never unregistered it, so with a long lived context, such as a server's root context, every indexer built and closed on it stayed in memory until that context ended. `Close` now unregisters it. ([#1257](https://github.com/opensearch-project/opensearch-go/pull/1257))
 
 ### Security
 
