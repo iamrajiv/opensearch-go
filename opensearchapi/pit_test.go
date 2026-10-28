@@ -60,6 +60,7 @@ type fakePITConfig struct {
 	// search_after, so a retried page returns the same hits: pages 1..pages hold
 	// hitsPerPage hits each, with sort values page*100+i, and later pages are empty.
 	pages, hitsPerPage int
+	noSort             bool // hits carry no sort values, as a search with "sort": [] gets
 
 	// Per-page faults, keyed by 1-based page. A times field is how many attempts
 	// at that page fail before it succeeds; 0 means every attempt fails.
@@ -167,6 +168,10 @@ func (f *fakePITCluster) handler(w http.ResponseWriter, r *http.Request) {
 		var hits []string
 		if page <= f.pages {
 			for i := range f.hitsPerPage {
+				if f.noSort {
+					hits = append(hits, fmt.Sprintf(`{"_id":"%d-%d"}`, page, i))
+					continue
+				}
 				hits = append(hits, fmt.Sprintf(`{"_id":"%d-%d","sort":[%d]}`, page, i, page*100+i))
 			}
 		}
@@ -992,6 +997,23 @@ func TestClientSearchAfter(t *testing.T) {
 			require.NoError(t, errf())
 		})
 	}
+}
+
+// A page whose last hit has no sort values gives search_after nothing to follow,
+// so paging stops with an error rather than asking for the first page again.
+func TestClientSearchAfterPagesWithoutSortValues(t *testing.T) {
+	t.Parallel()
+	client := newPITClient(t, &fakePITCluster{fakePITConfig: fakePITConfig{pages: 3, hitsPerPage: 3, noSort: true}})
+
+	pages, errf := client.SearchAfterPages(t.Context(), &opensearchapi.SearchReq{Indices: []string{"idx"}, Body: sortedBody(new(3))})
+	n := 0
+	for range pages {
+		if n++; n == 3 {
+			break // on a client that repeats page 1 forever
+		}
+	}
+	require.Equal(t, 1, n, "pages yielded")
+	require.ErrorContains(t, errf(), "page 1's last hit has no sort values")
 }
 
 func TestSearchContextMissing(t *testing.T) {

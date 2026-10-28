@@ -73,9 +73,11 @@ type searchFunc func(context.Context, *SearchReq) (*SearchResp, error)
 // its missing documents for good. A page with a failed shard stops the scan
 // with a [*PartialSearchError], even when the client's error mask hides partial
 // failures; one that timed out or terminated early stops it with
-// [ErrSearchPageIncomplete]. A page whose failed shards were all rejected by a
-// full search queue, or that timed out, is retried up to twice, after 3s and
-// then 6s, before the scan stops. search_after keeps the position, so a
+// [ErrSearchPageIncomplete]. A full page whose last hit has no sort values, as
+// with an empty Body.Sort, stops it with an error, because the next request
+// would ask for that page again. A page whose failed shards were all rejected
+// by a full search queue, or that timed out, is retried up to twice, after 3s
+// and then 6s, before the scan stops. search_after keeps the position, so a
 // retried page does not skip or repeat documents; without a PIT it can see
 // documents indexed in between.
 func (c Client) SearchAfterPages(ctx context.Context, req *SearchReq) (iter.Seq[*SearchResp], func() error) {
@@ -164,6 +166,12 @@ func searchAfterPages(
 				yielded += len(hits)
 			}
 			if len(hits) < *body.Size {
+				return
+			}
+			// Without sort values the next request would ask for this page again.
+			if len(hits[len(hits)-1].Sort) == 0 {
+				err = fmt.Errorf("opensearchapi: search_after page %d (%d hits yielded before it): page %d's last hit has no sort values",
+					n+1, yielded, n)
 				return
 			}
 			body.SearchAfter = hits[len(hits)-1].Sort
