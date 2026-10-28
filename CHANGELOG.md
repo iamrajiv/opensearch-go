@@ -15,6 +15,7 @@ Inspired from [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 ### Fixed
 
 - Keep nodes available when a transport attempt returns an error while the caller's context is canceled or its deadline has expired, including seed fallback. These failures no longer demote the node, invalidate shard placement, or trigger a retry. ([#1254](https://github.com/opensearch-project/opensearch-go/pull/1254))
+- Fix the search_after iterators asking for the same page forever when its last hit has no sort values, as with an empty `Body.Sort`, which passes the check for a nil one. The next page's `search_after` was then empty, so every request was the first one again and the scan never ended or reported an error. Paging now stops with an error at such a page. ([#1259](https://github.com/opensearch-project/opensearch-go/pull/1259))
 
 ### Security
 
